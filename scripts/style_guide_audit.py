@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import zipfile
 from pathlib import Path
 
 import anthropic
@@ -33,9 +34,21 @@ client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
 def load_style_guide() -> str:
-    """Load the style guide skill file content, stripping frontmatter."""
-    with open(SKILL_PATH) as f:
-        content = f.read()
+    """Load the style guide skill file content, stripping frontmatter.
+
+    The .skill format is a zip archive containing a SKILL.md file.
+    Falls back to reading as plain text if it's not a zip.
+    """
+    if zipfile.is_zipfile(SKILL_PATH):
+        with zipfile.ZipFile(SKILL_PATH) as zf:
+            # Find the SKILL.md inside the archive
+            md_files = [n for n in zf.namelist() if n.endswith("SKILL.md")]
+            if not md_files:
+                raise FileNotFoundError(f"No SKILL.md found in {SKILL_PATH}")
+            content = zf.read(md_files[0]).decode("utf-8")
+    else:
+        with open(SKILL_PATH) as f:
+            content = f.read()
 
     # Strip YAML frontmatter (between --- delimiters)
     if content.startswith("---"):
