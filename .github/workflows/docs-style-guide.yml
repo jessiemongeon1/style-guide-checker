@@ -45,7 +45,7 @@ jobs:
       - name: Get changed mdx files
         id: changed-files
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.DOCS_MONITOR_PAT || secrets.GITHUB_TOKEN }}
           # Support both local PRs and external repo PRs via workflow_dispatch
           TARGET_REPO: ${{ inputs.repo || github.repository }}
           TARGET_PR: ${{ inputs.pr_number || github.event.pull_request.number }}
@@ -80,7 +80,7 @@ jobs:
       - name: Post review comment
         if: steps.changed-files.outputs.files != '' && always()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.DOCS_MONITOR_PAT || secrets.GITHUB_TOKEN }}
           TARGET_REPO: ${{ inputs.repo || github.repository }}
           TARGET_PR: ${{ inputs.pr_number || github.event.pull_request.number }}
         run: |
