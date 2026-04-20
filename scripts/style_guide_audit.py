@@ -13,21 +13,16 @@ import sys
 import zipfile
 from pathlib import Path
 
-import anthropic
-
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 CHANGED_FILES = os.environ.get("CHANGED_FILES", "")
 REPO_ROOT = os.environ.get("AUDIT_REPO_ROOT", os.environ.get("GITHUB_WORKSPACE", "."))
 
 # Path to the style guide skill file (always in THIS repo, not the target repo)
 _this_repo_root = os.environ.get("GITHUB_WORKSPACE", os.path.join(os.path.dirname(__file__), ".."))
 SKILL_PATH = os.path.join(_this_repo_root, "sui-documentation-style-guide.skill")
-
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # ---------------------------------------------------------------------------
 # Load the style guide skill
@@ -63,35 +58,6 @@ def load_style_guide() -> str:
 # ---------------------------------------------------------------------------
 # Audit logic
 # ---------------------------------------------------------------------------
-
-AUDIT_SYSTEM = """You are a documentation style guide auditor for the Sui blockchain project.
-
-You will be given the content of a documentation file (.mdx) and the Sui Documentation Style Guide.
-
-Your job is to audit the file against the style guide and report ALL violations. Every rule in the style guide is mandatory — there are no optional rules.
-
-**Critical: Never suggest changes to code, code blocks, inline code, or anything inside backticks. Leave all code as-is. Only audit prose, headings, frontmatter, and formatting.**
-
-For each violation found, report:
-1. The line number (or approximate location)
-2. The rule being violated (brief reference to the style guide section)
-3. The current text
-4. The suggested fix
-
-Output format — return a JSON object:
-{
-  "file": "path/to/file.mdx",
-  "summary": "Brief summary of findings",
-  "violations": [
-    {"line": 10, "rule": "Rule name", "current": "current text", "suggested": "fixed text"}
-  ]
-}
-
-If the file has no violations, return:
-{"file": "path/to/file.mdx", "summary": "No violations found", "violations": []}
-
-Return ONLY valid JSON, no markdown fencing.
-"""
 
 
 def deterministic_checks(file_path: str, content: str) -> list[dict]:
@@ -352,63 +318,10 @@ def audit_file(file_path: str, style_guide: str) -> dict:
     regex_violations = deterministic_checks(file_path, content)
     print(f"    regex violations={len(regex_violations)}")
 
-    # Then run Claude for nuanced checks (passive voice, clarity, etc.)
-    # Skip very large files (over 60k chars)
-    if len(content) > 60000:
-        content = content[:60000] + "\n\n[... truncated for length ...]"
-
-    claude_violations = []
-    try:
-        message = client.messages.create(
-            model="claude-sonnet-4-6",
-            temperature=0,
-            max_tokens=8192,
-            system=AUDIT_SYSTEM,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"## Style Guide\n\n{style_guide}\n\n"
-                        f"## File to Audit: `{file_path}`\n\n{content}"
-                    ),
-                }
-            ],
-        )
-
-        response_text = message.content[0].text.strip()
-        if response_text.startswith("```"):
-            response_text = re.sub(r"^```(?:json)?\n?", "", response_text)
-            response_text = re.sub(r"\n?```$", "", response_text)
-
-        parsed = json.loads(response_text)
-        claude_violations = parsed.get("violations", [])
-    except (json.JSONDecodeError, Exception) as e:
-        print(f"    Claude audit warning: {e}")
-
-    # Merge: regex violations take priority. Skip Claude violations that
-    # overlap with regex findings (same line ±2, or same "current" text).
-    regex_lines = set()
-    regex_currents = set()
-    for v in regex_violations:
-        line = v["line"]
-        regex_lines.update({line - 2, line - 1, line, line + 1, line + 2})
-        cur = v.get("current", "").strip().lower()
-        if cur:
-            regex_currents.add(cur)
-
-    unique_claude = []
-    for v in claude_violations:
-        cl = v.get("line", 0)
-        cur = v.get("current", "").strip().lower()
-        # Skip if line is near a regex finding
-        if cl in regex_lines:
-            continue
-        # Skip if the flagged text matches something regex already caught
-        if cur and any(rc in cur or cur in rc for rc in regex_currents if len(rc) > 3):
-            continue
-        unique_claude.append(v)
-
-    all_violations = regex_violations + unique_claude
+    # Regex checks are sufficient — Claude was producing too many false
+    # positives (flagging non-issues, hallucinating violations, then saying
+    # "No change needed" in the fix). Deterministic checks only.
+    all_violations = regex_violations
 
     return {
         "file": file_path,

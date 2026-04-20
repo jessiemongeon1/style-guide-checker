@@ -40,7 +40,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install anthropic
+        run: echo "No external dependencies needed"
 
       - name: Get changed mdx files
         id: changed-files
@@ -82,7 +82,6 @@ jobs:
       - name: Run style guide audit
         if: steps.changed-files.outputs.files != ''
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CHANGED_FILES: /tmp/changed_mdx_files.txt
           AUDIT_REPO_ROOT: ${{ steps.changed-files.outputs.repo_root }}
         run: python scripts/style_guide_audit.py
