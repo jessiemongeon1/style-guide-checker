@@ -13,6 +13,8 @@ import sys
 import zipfile
 from pathlib import Path
 
+import anthropic
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -290,10 +292,106 @@ def deterministic_checks(file_path: str, content: str) -> list[dict]:
     return violations
 
 
+def claude_review(file_path: str, content: str, style_guide: str,
+                   existing_rules: set[str]) -> list[dict]:
+    """Use Claude to catch nuanced style guide violations that regex misses.
+
+    Args:
+        file_path: Path to the file being audited.
+        content: The file content.
+        style_guide: The full style guide text.
+        existing_rules: Set of rule names already flagged by regex checks,
+                        so Claude doesn't duplicate them.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        print("    Skipping Claude review: ANTHROPIC_API_KEY not set")
+        return []
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    rules_already_covered = "\n".join(f"- {r}" for r in sorted(existing_rules))
+
+    prompt = f"""You are a strict documentation style guide auditor. Review the following .mdx file against the style guide below.
+
+IMPORTANT RULES FOR YOUR REVIEW:
+1. Only flag CLEAR, UNAMBIGUOUS violations of the style guide. If you are not at least 90% confident something is a violation, do NOT flag it.
+2. Do NOT flag issues inside code blocks (``` ... ```) or inline code (`...`).
+3. Do NOT flag issues inside HTML/JSX tags.
+4. Do NOT duplicate violations already caught by regex checks. The following rules are ALREADY covered — skip them entirely:
+{rules_already_covered}
+5. Focus on nuanced issues regex cannot catch, such as:
+   - Tone problems (condescending, overly casual, or marketing language)
+   - Instructions that use passive voice when active voice would be clearer
+   - Unclear or ambiguous phrasing that could confuse the reader
+   - Incorrect technical terminology per the style guide
+   - Structural issues (e.g., missing prerequisites, steps out of order)
+6. Return ONLY a JSON array of violations. Each violation must have exactly these fields:
+   - "line": the line number (integer)
+   - "rule": a short rule name (string)
+   - "current": the problematic text, max 100 chars (string)
+   - "suggested": a concrete fix or "(rewrite)" if the fix is complex (string)
+7. If there are NO violations, return an empty array: []
+8. Do NOT include explanations, preamble, or markdown formatting. Return ONLY the JSON array.
+
+<style_guide>
+{style_guide}
+</style_guide>
+
+<file path="{file_path}">
+{content}
+</file>
+
+Return ONLY the JSON array:"""
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        text = ""
+        for block in response.content:
+            if block.type == "text":
+                text += block.text
+
+        text = text.strip()
+        # Strip markdown code fences if present
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+
+        violations = json.loads(text)
+        if not isinstance(violations, list):
+            print(f"    Claude returned non-list: {type(violations)}")
+            return []
+
+        # Validate each violation has required fields
+        valid = []
+        for v in violations:
+            if (isinstance(v, dict) and "line" in v and "rule" in v
+                    and "current" in v and "suggested" in v):
+                # Skip if the suggested fix is essentially "no change"
+                if v["suggested"].lower() in ("no change needed", "no change", "n/a"):
+                    continue
+                v["source"] = "claude"
+                valid.append(v)
+
+        return valid
+
+    except anthropic.APIError as e:
+        print(f"    Claude API error: {e}")
+        return []
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"    Failed to parse Claude response: {e}")
+        return []
+
+
 def audit_file(file_path: str, style_guide: str) -> dict:
     """Audit a single file against the style guide.
 
-    Runs deterministic regex checks first, then optionally uses Claude
+    Runs deterministic regex checks first, then uses Claude
     for nuanced issues that regex can't catch.
     """
     abs_path = os.path.join(REPO_ROOT, file_path)
@@ -318,14 +416,16 @@ def audit_file(file_path: str, style_guide: str) -> dict:
     regex_violations = deterministic_checks(file_path, content)
     print(f"    regex violations={len(regex_violations)}")
 
-    # Regex checks are sufficient — Claude was producing too many false
-    # positives (flagging non-issues, hallucinating violations, then saying
-    # "No change needed" in the fix). Deterministic checks only.
-    all_violations = regex_violations
+    # Run Claude review for nuanced issues regex can't catch
+    existing_rules = {v["rule"] for v in regex_violations}
+    claude_violations = claude_review(file_path, content, style_guide, existing_rules)
+    print(f"    claude violations={len(claude_violations)}")
+
+    all_violations = regex_violations + claude_violations
 
     return {
         "file": file_path,
-        "summary": f"{len(all_violations)} violation(s)",
+        "summary": f"{len(all_violations)} violation(s) ({len(regex_violations)} regex, {len(claude_violations)} claude)",
         "violations": all_violations,
     }
 
