@@ -93,8 +93,212 @@ Return ONLY valid JSON, no markdown fencing.
 """
 
 
+def deterministic_checks(file_path: str, content: str) -> list[dict]:
+    """Run regex-based style guide checks that don't need AI."""
+    violations = []
+    lines = content.split("\n")
+    in_code_block = False
+
+    for i, line in enumerate(lines):
+        line_num = i + 1
+        if re.match(r"^```", line):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+
+        # Skip HTML/JSX lines
+        if re.match(r"^\s*<", line) and not re.match(r"^\s*#{2,}", line):
+            continue
+
+        def in_backticks(text, match_str):
+            idx = text.find(match_str)
+            if idx == -1:
+                return False
+            count = text[:idx].count("`")
+            return count % 2 == 1
+
+        # Latin abbreviations
+        for pattern, fix_word in [
+            (r"\be\.g\.", "for example"),
+            (r"\bi\.e\.", "that is"),
+            (r"\betc\.", "and so on"),
+        ]:
+            m = re.search(pattern, line)
+            if m and not in_backticks(line, m.group()):
+                violations.append({
+                    "line": line_num,
+                    "rule": "No Latin abbreviations",
+                    "current": m.group(),
+                    "suggested": fix_word,
+                })
+
+        # "via" → "through"
+        m = re.search(r"\bvia\b", line, re.IGNORECASE)
+        if m and not in_backticks(line, m.group()):
+            violations.append({
+                "line": line_num, "rule": 'Use "through" not "via"',
+                "current": m.group(), "suggested": "through",
+            })
+
+        # "simple"/"simply"
+        m = re.search(r"\b(simple|simply)\b", line, re.IGNORECASE)
+        if m and not in_backticks(line, m.group()):
+            violations.append({
+                "line": line_num, "rule": 'Use "basic" not "simple"',
+                "current": m.group(),
+                "suggested": "basic" if m.group().lower() == "simple" else "(remove)",
+            })
+
+        # "dApp"/"dApps"
+        m = re.search(r"\b(dApp|dApps)\b", line)
+        if m and not in_backticks(line, m.group()):
+            violations.append({
+                "line": line_num, "rule": 'Use "app" not "dApp"',
+                "current": m.group(),
+                "suggested": "app" if m.group() == "dApp" else "apps",
+            })
+
+        # "may" → "might"
+        if re.search(r"\bmay\b", line) and not in_backticks(line, "may") and not re.match(r"^\s*#", line):
+            violations.append({
+                "line": line_num, "rule": 'Use "might" not "may"',
+                "current": "may", "suggested": "might",
+            })
+
+        # Em dashes
+        if "—" in line and not in_backticks(line, "—"):
+            violations.append({
+                "line": line_num, "rule": "No em dashes",
+                "current": "—", "suggested": "Rewrite with comma, parentheses, or split sentence",
+            })
+
+        # Ampersands in prose
+        if " & " in line and "&amp;" not in line and "&lt;" not in line:
+            violations.append({
+                "line": line_num, "rule": 'Use "and" not "&"',
+                "current": "&", "suggested": "and",
+            })
+
+        # Lowercase network names
+        for lower, upper in [("mainnet", "Mainnet"), ("testnet", "Testnet"),
+                             ("devnet", "Devnet"), ("localnet", "Localnet")]:
+            if re.search(rf"\b{lower}\b", line) and not in_backticks(line, lower):
+                violations.append({
+                    "line": line_num, "rule": f"Capitalize {lower}",
+                    "current": lower, "suggested": upper,
+                })
+
+        # "Note that" / "Please note"
+        if re.match(r"^\s*(Note that|Please note)", line, re.IGNORECASE):
+            violations.append({
+                "line": line_num, "rule": "No 'Note that'/'Please note' at sentence start",
+                "current": line.strip()[:50], "suggested": "Remove or rewrite",
+            })
+
+        # Exclamation marks
+        if re.search(r"[^`!]![^\[\]`]", line) and "Hello, World!" not in line and not re.match(r"^\s*[!<]", line):
+            violations.append({
+                "line": line_num, "rule": "No exclamation marks",
+                "current": "!", "suggested": ".",
+            })
+
+        # Section heading sentence case
+        heading = re.match(r"^(#{2,5})\s+(.+)", line)
+        if heading:
+            text = heading.group(2)
+            words = re.sub(r"`[^`]+`", "", text).split()
+            proper = {"Sui", "Move", "React", "Vue", "TypeScript", "JavaScript", "GraphQL",
+                      "JSON", "gRPC", "API", "SDK", "CLI", "BCS", "ID", "Mainnet", "Testnet",
+                      "Devnet", "Localnet", "DeepBook", "Kiosk", "Walrus", "SUI", "SSR",
+                      "WASM", "OAuth", "OpenID", "Step", "One-Time", "Witness"}
+            caps = sum(1 for w in words[1:] if len(w) > 2 and w[0].isupper() and w not in proper)
+            if caps >= 2:
+                violations.append({
+                    "line": line_num, "rule": "Headings use sentence case",
+                    "current": text, "suggested": "Capitalize only first word and proper nouns",
+                })
+
+            # Period at end of heading
+            if text.strip().endswith("."):
+                violations.append({
+                    "line": line_num, "rule": "No period after heading",
+                    "current": text, "suggested": text.rstrip("."),
+                })
+
+        # First person
+        if re.search(r"\b(we |we'|our |let's |let us )", line, re.IGNORECASE) and not in_backticks(line, "we") and not re.match(r"^\s*#", line):
+            violations.append({
+                "line": line_num, "rule": "Use second person (you), not first person",
+                "current": line.strip()[:50], "suggested": "Rewrite using 'you'",
+            })
+
+        # Future tense "will"
+        if re.search(r"\bwill\b", line) and not in_backticks(line, "will") and not re.match(r"^\s*#", line):
+            violations.append({
+                "line": line_num, "rule": "Use present tense, not future",
+                "current": "will", "suggested": "Use present tense verb",
+            })
+
+        # British spellings
+        for british, american in [
+            ("behaviour", "behavior"), ("colour", "color"), ("favour", "favor"),
+            ("initialise", "initialize"), ("serialise", "serialize"),
+            ("customise", "customize"), ("organise", "organize"),
+            ("factorisation", "factorization"),
+        ]:
+            if re.search(rf"\b{british}\b", line, re.IGNORECASE) and not in_backticks(line, british):
+                violations.append({
+                    "line": line_num, "rule": f"US English: {british} → {american}",
+                    "current": british, "suggested": american,
+                })
+
+        # Term lists using dash instead of colon
+        if re.match(r"^\s*[-*]\s+\*\*[^*]+\*\*\s+-\s+", line):
+            violations.append({
+                "line": line_num, "rule": "Term lists use colon, not dash",
+                "current": "**Term** - def", "suggested": "**Term:** def",
+            })
+
+        # Causal "since"
+        if re.search(r"(?:^|\.\s+|,\s+)[Ss]ince\s+", line) and not in_backticks(line, "since"):
+            violations.append({
+                "line": line_num, "rule": 'Use "because" not causal "since"',
+                "current": "since", "suggested": "because",
+            })
+
+    # Frontmatter checks
+    fm = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+    if fm:
+        fmtext = fm.group(1)
+        if "description:" not in fmtext or re.search(r"description:\s*(placeholder)?\s*$", fmtext, re.MULTILINE):
+            violations.append({
+                "line": 1, "rule": "Frontmatter needs description",
+                "current": "(missing or placeholder)", "suggested": "Add a complete sentence description",
+            })
+        if "keywords:" not in fmtext or re.search(r"keywords:\s*\[\s*placeholder\s*\]", fmtext):
+            violations.append({
+                "line": 1, "rule": "Frontmatter needs keywords",
+                "current": "(missing or placeholder)", "suggested": "Add relevant keywords",
+            })
+
+    # Admonition count
+    adm_count = len(re.findall(r"^:::(caution|danger|info|note|tip)", content, re.MULTILINE))
+    if adm_count > 4:
+        violations.append({
+            "line": 1, "rule": f"Max 4 admonitions per page (found {adm_count})",
+            "current": f"{adm_count} admonitions", "suggested": "Remove or consolidate",
+        })
+
+    return violations
+
+
 def audit_file(file_path: str, style_guide: str) -> dict:
-    """Audit a single file against the style guide."""
+    """Audit a single file against the style guide.
+
+    Runs deterministic regex checks first, then optionally uses Claude
+    for nuanced issues that regex can't catch.
+    """
     abs_path = os.path.join(REPO_ROOT, file_path)
     if not os.path.exists(abs_path):
         return {
@@ -106,39 +310,61 @@ def audit_file(file_path: str, style_guide: str) -> dict:
     with open(abs_path) as f:
         content = f.read()
 
+    # Run deterministic checks first — these always catch violations
+    regex_violations = deterministic_checks(file_path, content)
+
+    # Then run Claude for nuanced checks (passive voice, clarity, etc.)
     # Skip very large files (over 60k chars)
     if len(content) > 60000:
         content = content[:60000] + "\n\n[... truncated for length ...]"
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=8192,
-        system=AUDIT_SYSTEM,
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"## Style Guide\n\n{style_guide}\n\n"
-                    f"## File to Audit: `{file_path}`\n\n{content}"
-                ),
-            }
-        ],
-    )
-
-    response_text = message.content[0].text.strip()
-    if response_text.startswith("```"):
-        response_text = re.sub(r"^```(?:json)?\n?", "", response_text)
-        response_text = re.sub(r"\n?```$", "", response_text)
-
+    claude_violations = []
     try:
-        return json.loads(response_text)
-    except json.JSONDecodeError:
-        return {
-            "file": file_path,
-            "summary": "Failed to parse audit response",
-            "violations": [],
-            "_raw": response_text,
-        }
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            temperature=0,
+            max_tokens=8192,
+            system=AUDIT_SYSTEM,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"## Style Guide\n\n{style_guide}\n\n"
+                        f"## File to Audit: `{file_path}`\n\n{content}"
+                    ),
+                }
+            ],
+        )
+
+        response_text = message.content[0].text.strip()
+        if response_text.startswith("```"):
+            response_text = re.sub(r"^```(?:json)?\n?", "", response_text)
+            response_text = re.sub(r"\n?```$", "", response_text)
+
+        parsed = json.loads(response_text)
+        claude_violations = parsed.get("violations", [])
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"    Claude audit warning: {e}")
+
+    # Merge: dedupe by line+rule
+    seen = set()
+    all_violations = []
+    for v in regex_violations:
+        key = f"{v['line']}:{v['rule'][:30]}"
+        if key not in seen:
+            seen.add(key)
+            all_violations.append(v)
+    for v in claude_violations:
+        key = f"{v.get('line', 0)}:{v.get('rule', '')[:30]}"
+        if key not in seen:
+            seen.add(key)
+            all_violations.append(v)
+
+    return {
+        "file": file_path,
+        "summary": f"{len(regex_violations)} deterministic + {len(claude_violations)} AI-detected violations",
+        "violations": all_violations,
+    }
 
 
 # ---------------------------------------------------------------------------
