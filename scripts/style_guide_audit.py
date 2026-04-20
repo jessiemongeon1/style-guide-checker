@@ -23,8 +23,9 @@ ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 CHANGED_FILES = os.environ.get("CHANGED_FILES", "")
 REPO_ROOT = os.environ.get("AUDIT_REPO_ROOT", os.environ.get("GITHUB_WORKSPACE", "."))
 
-# Path to the style guide skill file (relative to repo root)
-SKILL_PATH = os.path.join(REPO_ROOT, "sui-documentation-style-guide.skill")
+# Path to the style guide skill file (always in THIS repo, not the target repo)
+_this_repo_root = os.environ.get("GITHUB_WORKSPACE", os.path.join(os.path.dirname(__file__), ".."))
+SKILL_PATH = os.path.join(_this_repo_root, "sui-documentation-style-guide.skill")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
