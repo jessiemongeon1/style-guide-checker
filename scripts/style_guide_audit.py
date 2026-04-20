@@ -385,23 +385,16 @@ def audit_file(file_path: str, style_guide: str) -> dict:
     except (json.JSONDecodeError, Exception) as e:
         print(f"    Claude audit warning: {e}")
 
-    # Merge: dedupe by line+rule
-    seen = set()
-    all_violations = []
-    for v in regex_violations:
-        key = f"{v['line']}:{v['rule'][:30]}"
-        if key not in seen:
-            seen.add(key)
-            all_violations.append(v)
-    for v in claude_violations:
-        key = f"{v.get('line', 0)}:{v.get('rule', '')[:30]}"
-        if key not in seen:
-            seen.add(key)
-            all_violations.append(v)
+    # Merge: regex violations take priority. Only add Claude violations
+    # for lines that regex didn't already flag.
+    regex_lines = {v["line"] for v in regex_violations}
+    unique_claude = [v for v in claude_violations if v.get("line", 0) not in regex_lines]
+
+    all_violations = regex_violations + unique_claude
 
     return {
         "file": file_path,
-        "summary": f"{len(regex_violations)} deterministic + {len(claude_violations)} AI-detected violations",
+        "summary": f"{len(all_violations)} violation(s)",
         "violations": all_violations,
     }
 
