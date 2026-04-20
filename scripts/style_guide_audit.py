@@ -385,10 +385,28 @@ def audit_file(file_path: str, style_guide: str) -> dict:
     except (json.JSONDecodeError, Exception) as e:
         print(f"    Claude audit warning: {e}")
 
-    # Merge: regex violations take priority. Only add Claude violations
-    # for lines that regex didn't already flag.
-    regex_lines = {v["line"] for v in regex_violations}
-    unique_claude = [v for v in claude_violations if v.get("line", 0) not in regex_lines]
+    # Merge: regex violations take priority. Skip Claude violations that
+    # overlap with regex findings (same line ±2, or same "current" text).
+    regex_lines = set()
+    regex_currents = set()
+    for v in regex_violations:
+        line = v["line"]
+        regex_lines.update({line - 2, line - 1, line, line + 1, line + 2})
+        cur = v.get("current", "").strip().lower()
+        if cur:
+            regex_currents.add(cur)
+
+    unique_claude = []
+    for v in claude_violations:
+        cl = v.get("line", 0)
+        cur = v.get("current", "").strip().lower()
+        # Skip if line is near a regex finding
+        if cl in regex_lines:
+            continue
+        # Skip if the flagged text matches something regex already caught
+        if cur and any(rc in cur or cur in rc for rc in regex_currents if len(rc) > 3):
+            continue
+        unique_claude.append(v)
 
     all_violations = regex_violations + unique_claude
 
