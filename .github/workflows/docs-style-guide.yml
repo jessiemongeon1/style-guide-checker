@@ -61,9 +61,13 @@ jobs:
             echo "$changed"
           fi
 
-          # Checkout the PR's repo so the audit script can read the files
+          # Checkout the PR's actual branch so the audit reads the changed files
           if [ "$TARGET_REPO" != "${{ github.repository }}" ]; then
-            gh repo clone "$TARGET_REPO" /tmp/target-repo -- --depth=1
+            git clone --depth=1 "https://github.com/$TARGET_REPO.git" /tmp/target-repo
+            cd /tmp/target-repo
+            git fetch origin "pull/$TARGET_PR/head:pr-branch" --depth=1
+            git checkout pr-branch
+            cd -
             echo "repo_root=/tmp/target-repo" >> $GITHUB_OUTPUT
           else
             echo "repo_root=${{ github.workspace }}" >> $GITHUB_OUTPUT
