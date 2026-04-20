@@ -1,0 +1,106 @@
+name: Docs Style Guide Audit
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '**.mdx'
+      - 'docs/**'
+
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: 'Repo to audit (owner/name)'
+        required: true
+      pr_number:
+        description: 'PR number to audit'
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  style-guide-audit:
+    name: Style guide audit
+    if: github.event.pull_request.draft == false || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Get changed mdx files
+        id: changed-files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Support both local PRs and external repo PRs via workflow_dispatch
+          TARGET_REPO: ${{ inputs.repo || github.repository }}
+          TARGET_PR: ${{ inputs.pr_number || github.event.pull_request.number }}
+        run: |
+          changed=$(gh pr diff "$TARGET_PR" --repo "$TARGET_REPO" --name-only | grep '\.mdx$' || true)
+          if [ -z "$changed" ]; then
+            echo "files=" >> $GITHUB_OUTPUT
+            echo "No .mdx files changed"
+          else
+            echo "$changed" > /tmp/changed_mdx_files.txt
+            echo "files=/tmp/changed_mdx_files.txt" >> $GITHUB_OUTPUT
+            echo "Changed .mdx files:"
+            echo "$changed"
+          fi
+
+          # Checkout the PR's repo so the audit script can read the files
+          if [ "$TARGET_REPO" != "${{ github.repository }}" ]; then
+            gh repo clone "$TARGET_REPO" /tmp/target-repo -- --depth=1
+            echo "repo_root=/tmp/target-repo" >> $GITHUB_OUTPUT
+          else
+            echo "repo_root=${{ github.workspace }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run style guide audit
+        if: steps.changed-files.outputs.files != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CHANGED_FILES: /tmp/changed_mdx_files.txt
+          GITHUB_WORKSPACE: ${{ steps.changed-files.outputs.repo_root }}
+        run: python scripts/style-guide-audit.py
+
+      - name: Post review comment
+        if: steps.changed-files.outputs.files != '' && always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_REPO: ${{ inputs.repo || github.repository }}
+          TARGET_PR: ${{ inputs.pr_number || github.event.pull_request.number }}
+        run: |
+          if [ ! -f /tmp/audit_review.md ]; then
+            echo "No audit results to post"
+            exit 0
+          fi
+
+          marker="<!-- style-guide-audit -->"
+          existing=$(gh api "repos/$TARGET_REPO/issues/$TARGET_PR/comments" \
+            --paginate --jq ".[] | select(.body | contains(\"$marker\")) | .id" | head -1)
+
+          body=$(cat /tmp/audit_review.md)
+
+          if [ -n "$existing" ]; then
+            gh api "repos/$TARGET_REPO/issues/comments/$existing" \
+              -X PATCH -f body="$body"
+            echo "Updated existing review comment"
+          else
+            gh api "repos/$TARGET_REPO/issues/$TARGET_PR/comments" \
+              -X POST -f body="$body"
+            echo "Posted new review comment"
+          fi
