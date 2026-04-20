@@ -63,10 +63,16 @@ jobs:
 
           # Checkout the PR's actual branch so the audit reads the changed files
           if [ "$TARGET_REPO" != "${{ github.repository }}" ]; then
+            echo "Cloning $TARGET_REPO..."
             git clone --depth=1 "https://github.com/$TARGET_REPO.git" /tmp/target-repo
             cd /tmp/target-repo
+            echo "Fetching PR $TARGET_PR head..."
             git fetch origin "pull/$TARGET_PR/head:pr-branch" --depth=1
+            echo "Checking out pr-branch..."
             git checkout pr-branch
+            echo "Current HEAD: $(git rev-parse HEAD)"
+            echo "Verifying file content..."
+            head -30 docs/content/sui-stack.mdx 2>/dev/null || echo "File not found at expected path"
             cd -
             echo "repo_root=/tmp/target-repo" >> $GITHUB_OUTPUT
           else

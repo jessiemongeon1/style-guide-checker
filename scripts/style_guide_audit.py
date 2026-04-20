@@ -300,6 +300,10 @@ def audit_file(file_path: str, style_guide: str) -> dict:
     for nuanced issues that regex can't catch.
     """
     abs_path = os.path.join(REPO_ROOT, file_path)
+    print(f"    REPO_ROOT={REPO_ROOT}")
+    print(f"    abs_path={abs_path}")
+    print(f"    exists={os.path.exists(abs_path)}")
+
     if not os.path.exists(abs_path):
         return {
             "file": file_path,
@@ -310,8 +314,12 @@ def audit_file(file_path: str, style_guide: str) -> dict:
     with open(abs_path) as f:
         content = f.read()
 
+    print(f"    content length={len(content)}")
+    print(f"    first 200 chars: {repr(content[:200])}")
+
     # Run deterministic checks first — these always catch violations
     regex_violations = deterministic_checks(file_path, content)
+    print(f"    regex violations={len(regex_violations)}")
 
     # Then run Claude for nuanced checks (passive voice, clarity, etc.)
     # Skip very large files (over 60k chars)
