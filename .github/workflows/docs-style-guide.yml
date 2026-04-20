@@ -84,7 +84,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CHANGED_FILES: /tmp/changed_mdx_files.txt
-          GITHUB_WORKSPACE: ${{ steps.changed-files.outputs.repo_root }}
+          AUDIT_REPO_ROOT: ${{ steps.changed-files.outputs.repo_root }}
         run: python scripts/style_guide_audit.py
 
       - name: Post review comment

@@ -21,7 +21,7 @@ import anthropic
 
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 CHANGED_FILES = os.environ.get("CHANGED_FILES", "")
-REPO_ROOT = os.environ.get("GITHUB_WORKSPACE", ".")
+REPO_ROOT = os.environ.get("AUDIT_REPO_ROOT", os.environ.get("GITHUB_WORKSPACE", "."))
 
 # Path to the style guide skill file (relative to repo root)
 SKILL_PATH = os.path.join(REPO_ROOT, "sui-documentation-style-guide.skill")
