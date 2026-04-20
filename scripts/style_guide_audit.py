@@ -254,11 +254,41 @@ def deterministic_checks(file_path: str, content: str) -> list[dict]:
                     "current": british, "suggested": american,
                 })
 
-        # Term lists using dash instead of colon
+        # H1 in body (should only be in frontmatter)
+        if re.match(r"^#\s+", line) and not re.match(r"^##", line):
+            violations.append({
+                "line": line_num, "rule": "H1 only in frontmatter",
+                "current": line.strip()[:60], "suggested": "Use ## or lower for section headings",
+            })
+
+        # on-chain/off-chain → onchain/offchain
+        for wrong, right in [("off-chain", "offchain"), ("on-chain", "onchain"),
+                             ("off chain", "offchain"), ("on chain", "onchain")]:
+            if re.search(rf"\b{wrong}\b", line, re.IGNORECASE) and not in_backticks(line, wrong):
+                violations.append({
+                    "line": line_num, "rule": f'"{wrong}" is one word → "{right}"',
+                    "current": wrong, "suggested": right,
+                })
+
+        # Term lists using dash instead of colon (bold terms)
         if re.match(r"^\s*[-*]\s+\*\*[^*]+\*\*\s+-\s+", line):
             violations.append({
                 "line": line_num, "rule": "Term lists use colon, not dash",
                 "current": "**Term** - def", "suggested": "**Term:** def",
+            })
+
+        # Attribute/term lists using dash instead of colon (code or plain terms)
+        if re.match(r"^\s*[-*]\s+`[^`]+`\s+-\s+", line):
+            violations.append({
+                "line": line_num, "rule": "Attribute lists use colon, not dash",
+                "current": "`attr` - desc", "suggested": "`attr`: desc",
+            })
+
+        # Plain term lists using dash (non-bold, non-code)
+        if re.match(r"^\s*[-*]\s+\S+\s+-\s+", line) and not re.match(r"^\s*[-*]\s+[`*]", line):
+            violations.append({
+                "line": line_num, "rule": "List items use colon, not dash, for definitions",
+                "current": line.strip()[:60], "suggested": "Use colon: `- Term: Definition`",
             })
 
         # Causal "since"
