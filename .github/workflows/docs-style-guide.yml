@@ -89,9 +89,15 @@ jobs:
             exit 0
           fi
 
+          if [ -z "$TARGET_PR" ] || [ "$TARGET_PR" = "" ]; then
+            echo "No PR number available — printing results to stdout instead"
+            cat /tmp/audit_review.md
+            exit 0
+          fi
+
           marker="<!-- style-guide-audit -->"
           existing=$(gh api "repos/$TARGET_REPO/issues/$TARGET_PR/comments" \
-            --paginate --jq ".[] | select(.body | contains(\"$marker\")) | .id" | head -1)
+            --paginate --jq ".[] | select(.body | contains(\"$marker\")) | .id" | head -1 || true)
 
           body=$(cat /tmp/audit_review.md)
 
