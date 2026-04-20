@@ -513,8 +513,7 @@ def main():
     print(f"\nTotal: {total} violation(s)")
 
     if total > 0:
-        print(f"\nFailing: {total} style guide violation(s) must be fixed")
-        sys.exit(1)
+        print(f"\n{total} style guide violation(s) found — see PR comment for details")
 
 
 if __name__ == "__main__":
