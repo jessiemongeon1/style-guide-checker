@@ -223,17 +223,43 @@ def main():
             print(f"\n  PR #{pr_num}: {pr['title'][:60]}")
             print(f"    {len(mdx_files)} .mdx file(s) to audit")
 
-            # Clone the repo at PR head
+            # Clone the repo at the PR's head SHA directly
             clone_dir = f"/tmp/audit-{repo.replace('/', '-')}-{pr_num}"
             subprocess.run(["rm", "-rf", clone_dir], capture_output=True)
-            subprocess.run(
-                ["gh", "repo", "clone", repo, clone_dir, "--", "--depth=1"],
-                capture_output=True,
-                text=True,
-            )
 
-            # Checkout the PR branch
-            clone_pr_branch(repo, pr_num, clone_dir)
+            # Fetch the PR head commit directly — gh pr checkout doesn't work
+            # reliably on shallow clones, so we clone at the exact SHA instead.
+            clone_result = subprocess.run(
+                ["git", "clone", "--depth=1",
+                 f"https://github.com/{repo}.git", clone_dir],
+                capture_output=True, text=True,
+            )
+            if clone_result.returncode != 0:
+                print(f"    Failed to clone {repo}: {clone_result.stderr.strip()}")
+                repo_state.append(key)
+                continue
+
+            # Fetch the PR ref and checkout
+            fetch_result = subprocess.run(
+                ["git", "-C", clone_dir, "fetch", "origin",
+                 f"pull/{pr_num}/head:pr-{pr_num}"],
+                capture_output=True, text=True,
+            )
+            if fetch_result.returncode != 0:
+                print(f"    Failed to fetch PR #{pr_num}: {fetch_result.stderr.strip()}")
+                repo_state.append(key)
+                continue
+
+            checkout_result = subprocess.run(
+                ["git", "-C", clone_dir, "checkout", f"pr-{pr_num}"],
+                capture_output=True, text=True,
+            )
+            if checkout_result.returncode != 0:
+                print(f"    Failed to checkout PR #{pr_num}: {checkout_result.stderr.strip()}")
+                repo_state.append(key)
+                continue
+
+            print(f"    Checked out PR #{pr_num} at {head_sha[:8]}")
 
             # Write the file list
             file_list_path = f"/tmp/mdx_files_{pr_num}.txt"
