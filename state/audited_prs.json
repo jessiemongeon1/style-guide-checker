@@ -187,7 +187,9 @@
     "3301:745df2392fcbb50961c36beeec94a15a66f51836",
     "3063:012a8aaccf2ffc9dce1cb17e3aa56cc889bdf41a",
     "3055:78fc3643d21a52272ab3aa0bbb01ff32c687c6a0",
-    "3306:d6a5f4028bbb9d1ec49b91af823f0a9d28d4a5ca"
+    "3306:d6a5f4028bbb9d1ec49b91af823f0a9d28d4a5ca",
+    "3308:db67af15c4deacb53cd33ee0e46a88da314e7fcb",
+    "3307:901dd07e937e0894988c47230083c220abcdeefe"
   ],
   "MystenLabs/seal": [
     "530:bcbad9f41f71e166c779df882491a2a1cd1e8927",
