@@ -29,6 +29,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.DOCS_MONITOR_PAT }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: python scripts/find-and-audit-prs.py
 
       - name: Persist state

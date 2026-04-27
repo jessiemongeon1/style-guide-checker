@@ -120,3 +120,29 @@ jobs:
               -X POST -f body="$body"
             echo "Posted new review comment"
           fi
+
+      - name: Notify Slack
+        if: steps.changed-files.outputs.files != '' && always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TARGET_REPO: ${{ inputs.repo || github.repository }}
+          TARGET_PR: ${{ inputs.pr_number || github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title || 'External PR' }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ] || [ ! -f /tmp/audit_review.md ]; then
+            echo "Skipping Slack notification"
+            exit 0
+          fi
+
+          total=$(grep -oP '^\*\*\K[0-9]+' /tmp/audit_review.md | head -1)
+          total=${total:-0}
+          pr_url="https://github.com/$TARGET_REPO/pull/$TARGET_PR"
+
+          payload=$(jq -n \
+            --arg text "*Style Guide Audit:* <$pr_url|$TARGET_REPO#$TARGET_PR> — $PR_TITLE
+          Total edits needed: *$total*" \
+            '{text: $text}')
+
+          curl -s -X POST -H 'Content-Type: application/json' \
+            -d "$payload" "$SLACK_WEBHOOK_URL"
+          echo "Slack notification sent"

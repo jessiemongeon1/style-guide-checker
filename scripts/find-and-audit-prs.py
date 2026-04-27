@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -171,6 +172,32 @@ def post_or_update_comment(repo: str, pr_number: int, body: str):
         print(f"    Posted comment on PR #{pr_number}")
 
 
+def notify_slack(repo: str, pr_number: int, pr_title: str, total_violations: int):
+    """Post a summary to Slack via incoming webhook."""
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+    if not webhook_url:
+        print("    Skipping Slack notification: SLACK_WEBHOOK_URL not set")
+        return
+
+    pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+    text = (
+        f"*Style Guide Audit:* <{pr_url}|{repo}#{pr_number}> — {pr_title}\n"
+        f"Total edits needed: *{total_violations}*"
+    )
+
+    payload = json.dumps({"text": text}).encode("utf-8")
+    req = urllib.request.Request(
+        webhook_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(req)
+        print(f"    Slack notification sent for PR #{pr_number}")
+    except Exception as e:
+        print(f"    Slack notification failed: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -281,8 +308,10 @@ def main():
                 print(f"      {count} violation(s)")
 
             # Generate and post comment
+            total_violations = sum(len(r.get("violations", [])) for r in results)
             review = audit_mod.generate_review_comment(results)
             post_or_update_comment(repo, pr_num, review)
+            notify_slack(repo, pr_num, pr["title"], total_violations)
 
             # Mark as audited
             repo_state.append(key)
