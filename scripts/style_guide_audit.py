@@ -322,7 +322,7 @@ IMPORTANT RULES FOR YOUR REVIEW:
 {rules_already_covered}
 5. Focus on nuanced issues regex cannot catch, such as:
    - Tone problems (condescending, overly casual, or marketing language)
-   - Instructions that use passive voice when active voice would be clearer
+   - Passive voice — the style guide requires active voice always; flag any passive voice and suggest an active voice rewrite
    - Unclear or ambiguous phrasing that could confuse the reader
    - Incorrect technical terminology per the style guide
    - Structural issues (e.g., missing prerequisites, steps out of order)
